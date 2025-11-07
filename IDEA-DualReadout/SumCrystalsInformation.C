@@ -16,15 +16,18 @@ int SumCrystalsInformation(std::string input_file) {
   auto reader = podio::makeReader(input_file);
 
   TFile OutputFile = TFile("SumCrystalsInformation.root", "RECREATE");
-  TH1F EnergyDeposited_th1 = TH1F("Energy deposited", ";energy sum [GeV]; Number of events", 1000, 70, 12.0);
-  TH1F Scounts_th1 = TH1F("Scintillation counts", ";Scintillation counts; Number of events", 1000, 0, 1000000.0);
-  TH1F Ccounts_th1 = TH1F("Cerenkov counts", ";Cerenkov counts sum; Number of events", 1000, 0, 1000000.0);
-  TH1F SLY_th1 = TH1F("S light yield", ";Scintillation light yield [p.e./GeV]; Number of events", 1000, 0, 100000.0);
-  TH1F CLY_th1 = TH1F("C light yield", ";Cerenkov light yield [p.e./GeV]; Number of events", 1000, 0, 100000.0);
+  TH1F EnergyDeposited_th1 = TH1F("Energy deposited", ";energy sum [GeV]; Number of events", 1000, 7, 12.0);
+  TH1F Scounts_th1 = TH1F("Scintillation counts", ";Scintillation counts; Number of events", 1000, 0, 40000.0);
+  TH1F Ccounts_th1 = TH1F("Cerenkov counts", ";Cerenkov counts sum; Number of events", 100, 0, 2000.0);
+  TH1F SLY_th1 = TH1F("S light yield", ";Scintillation light yield [p.e./GeV]; Number of events", 100, 0, 4000.0);
+  TH1F CLY_th1 = TH1F("C light yield", ";Cerenkov light yield [p.e./GeV]; Number of events", 100, 0, 200.0);
 
-  TH1F TimingLayerEdep_th1 = TH1F("Timing layer Energy deposited", ";energy sum [GeV]; Number of events", 1000, 0.0, 12.0);
-  TH1F TimingLayerScounts_th1 = TH1F("Timing layer Scintillation counts", ";Scintillation counts; Number of events", 1000, 0, 1000000.0);
-  TH1F TimingLayerSLY_th1 = TH1F("Timing layer S light yield", ";Scintillation light yield [p.e./GeV]; Number of events", 1000, 0, 100000.0);
+  TH1F TimingLayerEdep_th1 =
+      TH1F("Timing layer Energy deposited", ";energy sum [GeV]; Number of events", 100, 0.0, 0.5);
+  TH1F TimingLayerScounts_th1 =
+      TH1F("Timing layer Scintillation counts", ";Scintillation counts; Number of events", 500, 0, 200000.0);
+  TH1F TimingLayerSLY_th1 =
+      TH1F("Timing layer S light yield", ";Scintillation light yield [p.e./MeV]; Number of events", 1000, 0, 10000.0);
 
   // Fill the TH1 with the cell energy sum
   for (size_t i = 0; i < reader.getEvents(); ++i) {
@@ -64,10 +67,11 @@ int SumCrystalsInformation(std::string input_file) {
 
     TimingLayerEdep_th1.Fill(TL_total_energy);
     TimingLayerScounts_th1.Fill(TL_Scounts);
-    TimingLayerSLY_th1.Fill(TL_Scounts / TL_total_energy);
+    TimingLayerSLY_th1.Fill(TL_Scounts / (TL_total_energy * 1000)); // LY expressedn in S counts / MeV
 
     std::cout << "Energy deposited in crystals [GeV]: " << total_energy << " S counts " << Scounts << " C counts "
-              << Ccounts << "Energy deposited in timing layer [GeV] " << TL_total_energy << " S counts " << TL_Scounts << std::endl;
+              << Ccounts << " Energy deposited in timing layer [GeV] " << TL_total_energy << " S counts " << TL_Scounts
+              << std::endl;
   }
   EnergyDeposited_th1.Write();
   Scounts_th1.Write();
