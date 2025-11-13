@@ -8,7 +8,6 @@
 #include <vector>
 
 #include "podio/Reader.h"
-//#include "podio/podio-config.h" // For PODIO_VERSION
 
 #include "edm4hep/SimCalorimeterHitCollection.h"
 
@@ -109,8 +108,6 @@ AnalysisResults analyzeFile(const std::string& input_file, double theta) {
     h_TotalC->Fill(eventTotalC);
   } // End event loop
 
-  //reader->closeFile();
-
   // Calculate mean, sigma (RMS), and SEM (Standard Error of the Mean)
   double nEntriesS = h_TotalS->GetEntries();
   double nEntriesC = h_TotalC->GetEntries();
@@ -139,12 +136,12 @@ int runHadCalibrationAnalysis() {
 
   // Map of theta values (in degrees) to their corresponding filenames
   std::map<double, std::string> filesToAnalyze;
-  filesToAnalyze[0.5] = "hadcalibration/IDEA_o2_v01_phi0p5_theta0p5.root";
-  filesToAnalyze[20.5] = "hadcalibration/IDEA_o2_v01_phi0p5_theta20p5.root";
-  filesToAnalyze[40.5] = "hadcalibration/IDEA_o2_v01_phi0p5_theta40p5.root";
-  filesToAnalyze[50.6] = "hadcalibration/IDEA_o2_v01_phi0p5_theta50p5.root";
-  filesToAnalyze[60.5] = "hadcalibration/IDEA_o2_v01_phi0p5_theta60p5.root";
-  filesToAnalyze[70.5] = "hadcalibration/IDEA_o2_v01_phi0p5_theta70p5.root";
+  filesToAnalyze[0.5] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta0p5_newrad.root";
+  filesToAnalyze[20.5] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta20p5_newrad.root";
+  filesToAnalyze[40.5] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta40p5_newrad.root";
+  filesToAnalyze[50.6] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta50p5_newrad.root";
+  filesToAnalyze[60.5] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta60p5_newrad.root";
+  filesToAnalyze[70.5] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta70p5_newrad.root";
 
   std::vector<double> meanScintValues;
   std::vector<double> meanCerenkovValues;
@@ -158,6 +155,8 @@ int runHadCalibrationAnalysis() {
   grS->SetMarkerStyle(20); // Full round marker
   grS->SetMarkerColor(kBlue);
   grS->SetLineColor(kBlue);
+  grS->SetMinimum(7500);
+  grS->SetMaximum(8500);
 
   auto grC = new TGraphErrors();
   grC->SetName("g_MeanC_vs_Theta");
@@ -165,6 +164,8 @@ int runHadCalibrationAnalysis() {
   grC->SetMarkerStyle(20); // Full round marker
   grC->SetMarkerColor(kRed);
   grC->SetLineColor(kRed);
+  grC->SetMinimum(2500);
+  grC->SetMaximum(3500);
 
   int pointIndex = 0; // Index for TGraphErrors points
 
