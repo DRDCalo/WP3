@@ -467,21 +467,21 @@ int emResolutionFit() {
         outFile->cd("Resolution");
         
         // FIT (Resolution: [0]/sqrt(E) + [1])
-        TF1* fit_res_S = new TF1("fit_res_S", "[0]/sqrt(x) + [1]", minEnergy, maxEnergy);
+        TF1* fit_res_S = new TF1("fit_res_S", "sqrt( ([0]/sqrt(x))^2 + [1]^2 )", minEnergy, maxEnergy);
         fit_res_S->SetParNames("Stochastic", "Constant");
         fit_res_S->SetParameters(0.1, 0.01); 
         fit_res_S->SetLineColor(kBlue);
         grS_Resolution->Fit(fit_res_S, "RQ");
         objectsToClean.push_back(fit_res_S);
 
-        TF1* fit_res_C = new TF1("fit_res_C", "[0]/sqrt(x) + [1]", minEnergy, maxEnergy);
+        TF1* fit_res_C = new TF1("fit_res_C", "sqrt( ([0]/sqrt(x))^2 + [1]^2 )", minEnergy, maxEnergy);
         fit_res_C->SetParNames("Stochastic", "Constant");
         fit_res_C->SetParameters(0.1, 0.01); 
         fit_res_C->SetLineColor(kRed);
         grC_Resolution->Fit(fit_res_C, "RQ");
         objectsToClean.push_back(fit_res_C);
 
-        TF1* fit_res_E = new TF1("fit_res_E", "[0]/sqrt(x) + [1]", minEnergy, maxEnergy);
+        TF1* fit_res_E = new TF1("fit_res_E", "sqrt( ([0]/sqrt(x))^2 + [1]^2 )", minEnergy, maxEnergy);
         fit_res_E->SetParNames("Stochastic", "Constant");
         fit_res_E->SetParameters(0.1, 0.01); 
         fit_res_E->SetLineColor(kGreen+2);
