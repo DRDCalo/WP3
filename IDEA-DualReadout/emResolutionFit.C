@@ -297,6 +297,7 @@ int emResolutionFit() {
     filesToAnalyze[10.0] = "emlinearity/IDEA_o2_v01_phi0p5_theta0p5_10gev.root";
     filesToAnalyze[20.0] = "emlinearity/IDEA_o2_v01_phi0p5_theta0p5_20gev.root";
     filesToAnalyze[40.0] = "emlinearity/IDEA_o2_v01_phi0p5_theta0p5_40gev.root";
+    filesToAnalyze[60.0] = "emlinearity/IDEA_o2_v01_phi0p5_theta0p5_60gev.root";
     // ... add more energies and files here
 
     std::vector<TH1F*> allHistograms;
