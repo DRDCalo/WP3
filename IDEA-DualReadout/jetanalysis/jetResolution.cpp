@@ -285,10 +285,18 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	// Collection of inputs to fastjet
 	std::vector<fastjet::PseudoJet> inputparticles_scin;
 	std::vector<fastjet::PseudoJet> inputparticles_cher;
+	std::vector<fastjet::PseudoJet> inputparticles_scin_crystal;
+	std::vector<fastjet::PseudoJet> inputparticles_cher_crystal;
 	std::vector<fastjet::PseudoJet> jet_scin;
 	std::vector<fastjet::PseudoJet> jet_cher;
 	std::vector<fastjet::PseudoJet> jet_cher_aligned;
+	std::vector<fastjet::PseudoJet> jet_scin_crystal;
+	std::vector<fastjet::PseudoJet> jet_cher_crystal;
+	std::vector<fastjet::PseudoJet> jet_cher_crystal_aligned;
 	std::vector<fastjet::PseudoJet> jet_dr;
+	std::vector<fastjet::PseudoJet> jet_dr_crystal;
+	std::vector<fastjet::PseudoJet> jet_dr_crystal_aligned;
+	std::vector<fastjet::PseudoJet> jet_final;
 
 	// Create input objects for fastjet
         for (const auto& anhit : *STowerBarrelCollection) { // scintillating hadronic barrel
@@ -315,6 +323,12 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
             tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
 	    inputparticles_scin.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
 	}
+
+	fastjet::JetDefinition jet_defs(fastjet::ee_genkt_algorithm, 2.*M_PI, 1.);
+        fastjet::ClusterSequence clust_seq_scin(inputparticles_scin, jet_defs); 
+        jet_scin.push_back(clust_seq_scin.exclusive_jets(int(2))[0]);
+        jet_scin.push_back(clust_seq_scin.exclusive_jets(int(2))[1]);
+
         for (const auto& anhit : crystals_Scounts) { // scintillating crystals
 	    double energy_calibrated = anhit.getEnergy() / Ks_crystal;
 	    auto angles = getThetaPhi(anhit);
@@ -322,13 +336,13 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	    if(energy_calibrated > 0.0001) { // GeV
               TLorentzVector tower;
               tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
-	      inputparticles_scin.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	      inputparticles_scin_crystal.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
 	    }
 	}
-	fastjet::JetDefinition jet_defs(fastjet::ee_genkt_algorithm, 2.*M_PI, 1.);
-        fastjet::ClusterSequence clust_seq_scin(inputparticles_scin, jet_defs); 
-        jet_scin.push_back(clust_seq_scin.exclusive_jets(int(2))[0]);
-        jet_scin.push_back(clust_seq_scin.exclusive_jets(int(2))[1]);
+
+        fastjet::ClusterSequence clust_seq_scin_crystal(inputparticles_scin_crystal, jet_defs); 
+        jet_scin_crystal.push_back(clust_seq_scin_crystal.exclusive_jets(int(2))[0]);
+        jet_scin_crystal.push_back(clust_seq_scin_crystal.exclusive_jets(int(2))[1]);
 
         for (const auto& anhit : *CTowerBarrelCollection) { // Cerenkov hadronic barrel
 	    double energy_calibrated = anhit.getEnergy() / Kc;
@@ -354,19 +368,25 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
             tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
 	    inputparticles_cher.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
 	}
-        for (const auto& anhit : crystals_Ccounts) { // Cerenkov crystals
+
+        fastjet::ClusterSequence clust_seq_cher(inputparticles_cher, jet_defs); 
+        jet_cher.push_back(clust_seq_cher.exclusive_jets(int(2))[0]);
+        jet_cher.push_back(clust_seq_cher.exclusive_jets(int(2))[1]);
+        
+	for (const auto& anhit : crystals_Ccounts) { // Cerenkov crystals
 	    double energy_calibrated = anhit.getEnergy() / Kc_crystal;
 	    auto angles = getThetaPhi(anhit);
             double pt = energy_calibrated*sin(angles.theta);
 	    if(energy_calibrated > 0.0001) { // GeV
               TLorentzVector tower;
               tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
-	      inputparticles_cher.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	      inputparticles_cher_crystal.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
 	    }
 	}
-        fastjet::ClusterSequence clust_seq_cher(inputparticles_cher, jet_defs); 
-        jet_cher.push_back(clust_seq_cher.exclusive_jets(int(2))[0]);
-        jet_cher.push_back(clust_seq_cher.exclusive_jets(int(2))[1]);
+
+        fastjet::ClusterSequence clust_seq_cher_crystal(inputparticles_cher_crystal, jet_defs); 
+        jet_cher_crystal.push_back(clust_seq_cher_crystal.exclusive_jets(int(2))[0]);
+        jet_cher_crystal.push_back(clust_seq_cher_crystal.exclusive_jets(int(2))[1]);
 
 	/*for(auto SPseudoJet : jet_scin){
 	    std::cout<<"pseudojet scin eta "<<SPseudoJet.eta()<<" energy "<<SPseudoJet.E()<<std::endl;
@@ -379,22 +399,48 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	for(uint jn=0; jn<jet_scin.size(); jn++) {
             jet_cher_aligned.push_back(matchjet(jet_scin[jn], jet_cher)); 
         }
+	// Align crystal cher jets to scin jets
+	for(uint jn=0; jn<jet_scin_crystal.size(); jn++) {
+            jet_cher_crystal_aligned.push_back(matchjet(jet_scin_crystal[jn], jet_cher_crystal)); 
+        }
 
-	std::cout<<"After alignment"<<std::endl;
+	/*std::cout<<"After alignment"<<std::endl;
 	for(auto SPseudoJet : jet_scin){
 	    std::cout<<"pseudojet scin eta "<<SPseudoJet.eta()<<" energy "<<SPseudoJet.E()<<std::endl;
 	};
 	for(auto CPseudoJet : jet_cher_aligned){
 	    std::cout<<"pseudojet cher eta "<<CPseudoJet.eta()<<" energy "<<CPseudoJet.E()<<std::endl;
-	};
+	};*/
        
 	// Apply dual-readout correction to jets
         for(uint jn=0; jn<jet_scin.size(); jn++) {
             jet_dr.push_back(mergejet(jet_scin[jn],jet_cher_aligned[jn], Chi));
         }
 
-	for(auto DRPseudoJet : jet_dr){
+	// Apply dual-readout correction to crystal jets
+        for(uint jn=0; jn<jet_scin_crystal.size(); jn++) {
+            jet_dr_crystal.push_back(mergejet(jet_scin_crystal[jn],jet_cher_crystal_aligned[jn], Chi_crystal));
+        }
+
+	/*for(auto DRPseudoJet : jet_dr){
 	    std::cout<<"pseudojet dr eta "<<DRPseudoJet.eta()<<" energy "<<DRPseudoJet.E()<<std::endl;
+	};
+	for(auto DRPseudoJet : jet_dr_crystal){
+	    std::cout<<"pseudojet crystal dr eta "<<DRPseudoJet.eta()<<" energy "<<DRPseudoJet.E()<<std::endl;
+	};*/
+
+	// Align crystal jets to fiber jets
+	for(uint jn=0; jn<jet_dr.size(); jn++) {
+            jet_dr_crystal_aligned.push_back(matchjet(jet_dr[jn], jet_dr_crystal)); 
+        }
+
+	// Sum crystal and fiber aligned jets
+	for(uint jn=0; jn<jet_dr.size(); jn++) {
+	    jet_final.push_back(jet_dr[jn]+jet_dr_crystal_aligned[jn]);
+	}
+
+	for(auto PseudoJet : jet_final){
+	    std::cout<<"pseudojet final eta "<<PseudoJet.eta()<<" energy "<<PseudoJet.E()<<std::endl;
 	};
 	
 	// Fill histograms with calibrated GeV values
@@ -403,7 +449,7 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         h_TotalE->Fill(0.);
         h_TotalScrystal->Fill(0.);
         h_TotalCcrystal->Fill(0.);
-
+        std::cout<<"end of event"<<std::endl;
     } // --- End Event Loop ---
     
     // --- Calculate Statistics from Gaussian Fit ---
