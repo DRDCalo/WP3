@@ -13,6 +13,8 @@
 #include "edm4hep/SimCalorimeterHitCollection.h"
 #include "edm4hep/CalorimeterHitCollection.h"
 #include "edm4hep/MutableCalorimeterHit.h"
+#include "edm4hep/MCParticleCollection.h"
+#include "edm4hep/MCParticle.h"
 
 // DD4HEP includes
 #include "DDSegmentation/BitFieldCoder.h"
@@ -137,11 +139,9 @@ struct AnalysisResults {
     double sigmaCombinedErr;
     
     // Pointers to the histograms
-    TH1F* h_TotalS;     // Histogram for S [GeV]
-    TH1F* h_TotalC;     // Histogram for C [GeV]
-    TH1F* h_TotalE;     // Histogram for Combined E [GeV]
-    TH1F* h_TotalScrystal; // Histogram for S [GeV]
-    TH1F* h_TotalCcrystal; // Histogram for C [GeV]
+    TH1F* h_TotalDR; 
+    TH1F* h_TotalTruth;
+    TH1F* h_TotalResidual;
 };
 
 struct Angles {
@@ -261,6 +261,8 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 
         auto event = reader.readNextEvent();
 
+        const auto& mcParticles = event.get<edm4hep::MCParticleCollection>("MCParticles");
+
 	// Get hadronic calorimeter fiber hit collections
         auto& BarrelS_hits = event.get<edm4hep::SimCalorimeterHitCollection>("DRBTScin");
         auto& BarrelC_hits = event.get<edm4hep::SimCalorimeterHitCollection>("DRBTCher");
@@ -287,6 +289,7 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	std::vector<fastjet::PseudoJet> inputparticles_cher;
 	std::vector<fastjet::PseudoJet> inputparticles_scin_crystal;
 	std::vector<fastjet::PseudoJet> inputparticles_cher_crystal;
+	std::vector<fastjet::PseudoJet> inputparticles_mctruth;
 	std::vector<fastjet::PseudoJet> jet_scin;
 	std::vector<fastjet::PseudoJet> jet_cher;
 	std::vector<fastjet::PseudoJet> jet_cher_aligned;
@@ -297,6 +300,8 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	std::vector<fastjet::PseudoJet> jet_dr_crystal;
 	std::vector<fastjet::PseudoJet> jet_dr_crystal_aligned;
 	std::vector<fastjet::PseudoJet> jet_final;
+	std::vector<fastjet::PseudoJet> jet_mctruth;
+	std::vector<fastjet::PseudoJet> jet_mctruth_aligned;
 
 	// Create input objects for fastjet
         for (const auto& anhit : *STowerBarrelCollection) { // scintillating hadronic barrel
@@ -439,16 +444,46 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	    jet_final.push_back(jet_dr[jn]+jet_dr_crystal_aligned[jn]);
 	}
 
-	for(auto PseudoJet : jet_final){
+	/*for(auto PseudoJet : jet_final){
 	    std::cout<<"pseudojet final eta "<<PseudoJet.eta()<<" energy "<<PseudoJet.E()<<std::endl;
-	};
-	
+	};*/
+
+        for (const auto& p : mcParticles) { // MC truth particles
+	    if(p.getGeneratorStatus() != 1) continue;
+	    auto pdgid = p.getPDG();
+	    if(pdgid == 13 || pdgid == 12 || pdgid == 14 || pdgid == 16) continue;
+	    //auto daughters = p.getDaughters();
+	    //if(daughters.size() > 0) continue;
+	    //std::cout<<" pdg "<<p.getPDG()<<" daughters "<<daughters.size()<<" status "<<p.getGeneratorStatus()<<std::endl;
+	    double E = p.getEnergy();
+	    auto Momentum = p.getMomentum();
+            float px = Momentum.x;
+            float py = Momentum.y;
+            float pz = Momentum.z;
+	    inputparticles_mctruth.push_back(fastjet::PseudoJet(px, py, pz, E));
+	}
+
+        fastjet::ClusterSequence clust_seq_mctruth(inputparticles_mctruth, jet_defs); 
+        jet_mctruth.push_back(clust_seq_mctruth.exclusive_jets(int(2))[0]);
+        jet_mctruth.push_back(clust_seq_mctruth.exclusive_jets(int(2))[1]);
+
+	/*for(auto MCPseudoJet : jet_mctruth){
+	    std::cout<<"mcpseudojet eta "<<MCPseudoJet.eta()<<" energy "<<MCPseudoJet.E()<<std::endl;
+	};*/
+
+	// Align final jets to mc truth jets
+	for(uint jn=0; jn<jet_final.size(); jn++) {
+            jet_mctruth_aligned.push_back(matchjet(jet_final[jn], jet_mctruth));
+        }
+
+	for(std::size_t t=0; t<2; t++){
+	    std::cout<<"reco jet "<<t<<" eta "<<jet_final[t].eta()<<" phi "<<jet_final[t].phi()<<" energy "<<jet_final[t].E()<<" mc truth jet "<<t<<" eta "<<jet_mctruth_aligned[t].eta()<<" phi "<<jet_mctruth_aligned[t].phi()<<" energy "<<jet_mctruth_aligned[t].E()<<std::endl;
+	}
+
 	// Fill histograms with calibrated GeV values
-        h_TotalS->Fill(0.);
-        h_TotalC->Fill(0.);
-        h_TotalE->Fill(0.);
-        h_TotalScrystal->Fill(0.);
-        h_TotalCcrystal->Fill(0.);
+        h_TotalDR->Fill(jet_final[0].E());
+        h_TotalMCTruth->Fill(jet_mctruth_aligned[0].E());
+        h_TotalResidual->Fill((jet_final[0].E()-jet_mctruth_aligned[0].E())/jet_mctruth_aligned[0].E());
         std::cout<<"end of event"<<std::endl;
     } // --- End Event Loop ---
     
