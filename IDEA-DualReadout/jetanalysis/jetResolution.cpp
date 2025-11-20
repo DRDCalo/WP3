@@ -17,6 +17,10 @@
 // DD4HEP includes
 #include "DDSegmentation/BitFieldCoder.h"
 
+// FASTJET includes
+#include "fastjet/PseudoJet.hh"
+#include "fastjet/ClusterSequence.hh"
+
 // ROOT includes
 #include "TH1F.h"
 #include "TSystem.h"
@@ -30,6 +34,8 @@
 #include "TLine.h"     // For ratio plots
 #include "TLegend.h"   // For combined plot
 #include "TPaveText.h" // For combined plot
+#include "TMultiGraph.h"
+#include "TLorentzVector.h"
 
 // Function to get tower id from fiber id
 int GetTowerNumber(long long int cellID, bool isBarrel){
@@ -138,6 +144,67 @@ struct AnalysisResults {
     TH1F* h_TotalCcrystal; // Histogram for C [GeV]
 };
 
+struct Angles {
+    double theta;
+    double phi;
+};
+
+Angles getThetaPhi(const edm4hep::CalorimeterHit& hit) {
+
+    auto pos = hit.getPosition();
+    double x = pos[0];
+    double y = pos[1];
+    double z = pos[2];
+
+    double r_xy = std::sqrt(x * x + y * y);
+    double phi = std::atan2(y, x);
+    double theta = std::atan2(r_xy, z);
+    return {theta, phi};
+}
+
+Angles getThetaPhi(const edm4hep::SimCalorimeterHit& hit) {
+
+    auto pos = hit.getPosition();
+    double x = pos[0];
+    double y = pos[1];
+    double z = pos[2];
+
+    double r_xy = std::sqrt(x * x + y * y);
+    double phi = std::atan2(y, x);
+    double theta = std::atan2(r_xy, z);
+    return {theta, phi};
+}
+
+double convertThetaToEta(double theta) {
+    // eta = -ln(tan(theta/2))
+    return -1.0 * std::log(std::tan(theta / 2.0));
+}
+
+fastjet::PseudoJet mergejet(fastjet::PseudoJet jet_scin, fastjet::PseudoJet jet_cher, double chi) {
+
+  double jetPx = (jet_scin.px()-chi*jet_cher.px())/(1-chi);
+  double jetPy = (jet_scin.py()-chi*jet_cher.py())/(1-chi);
+  double jetPz = (jet_scin.pz()-chi*jet_cher.pz())/(1-chi);
+  double jetE = (jet_scin.e()-chi*jet_cher.e())/(1.-chi);
+  return fastjet::PseudoJet(jetPx, jetPy, jetPz, jetE);
+}
+
+fastjet::PseudoJet matchjet(fastjet::PseudoJet jet_in, std::vector<fastjet::PseudoJet> testvec) {
+
+  int imin=-1;
+  double deltarmin=99999.;
+  for(uint i=0; i<testvec.size(); i++){
+    double deltar=jet_in.delta_R(testvec.at(i));
+    if(deltar<deltarmin) {
+      deltarmin=deltar;
+      imin=i;
+    }
+  }
+  if(imin != -1) return testvec.at(imin);
+  else
+  return fastjet::PseudoJet(0., 0., 0., 0.);
+}
+
 /**
  * @brief Analyzes a single input file, creates histograms in GeV, and fits them.
  * @param input_file Path to the PODIO file.
@@ -191,7 +258,7 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 
     // --- Event Loop ---
     for (size_t i = 0; i < nEvents; ++i) {
-        
+
         auto event = reader.readNextEvent();
 
 	// Get hadronic calorimeter fiber hit collections
@@ -210,64 +277,132 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         auto CTowerEndcapLCollection = aggregateToTowers(&EndcapLeftC_hits, false);
         auto STowerEndcapRCollection = aggregateToTowers(&EndcapRightS_hits, false);
         auto CTowerEndcapRCollection = aggregateToTowers(&EndcapRightC_hits, false);
-        std::cout<<" event "<<i<<" aggregated to towers "<<std::endl;
 
-        float TotalDRBTS = 0.;
-        float TotalDRBTC = 0.;
-        float TotalDRETS = 0.;
-        float TotalDRETC = 0.;
-        float TotalTowerS = 0.;
-
-        for (const auto& BarrelS_hit : BarrelS_hits) {
-          TotalDRBTS += BarrelS_hit.getEnergy();
-        }
-        for (const auto& BarrelC_hit : BarrelC_hits) {
-          TotalDRBTC += BarrelC_hit.getEnergy();
-        }
-        for (const auto& EndcapS_hit : EndcapLeftS_hits) {
-          TotalDRETS += EndcapS_hit.getEnergy();
-        }
-        for (const auto& EndcapS_hit : EndcapRightS_hits) {
-          TotalDRETS += EndcapS_hit.getEnergy();
-        }
-        for (const auto& EndcapC_hit : EndcapLeftC_hits) {
-          TotalDRETC += EndcapC_hit.getEnergy();
-        }
-        for (const auto& EndcapC_hit : EndcapRightC_hits) {
-          TotalDRETC += EndcapC_hit.getEnergy();
-        }
-
-        // Calculate the total signal for this event
-        float eventTotalS = TotalDRBTS + TotalDRETS;
-        float eventTotalC = TotalDRBTC + TotalDRETC;
-
-        // Calibrated signals per event (in GeV)
-        float eventTotalS_cal = eventTotalS / Ks;
-        float eventTotalC_cal = eventTotalC / Kc;
-        
-	// Crystal section
+	// Get crystal hit collections
         auto& crystals_Scounts = event.get<edm4hep::SimCalorimeterHitCollection>("SCEPCal_MainScounts");
         auto& crystals_Ccounts = event.get<edm4hep::SimCalorimeterHitCollection>("SCEPCal_MainCcounts");
 
-        float TotalS_pe = 0.;
-        float TotalC_pe = 0.;
+	// Collection of inputs to fastjet
+	std::vector<fastjet::PseudoJet> inputparticles_scin;
+	std::vector<fastjet::PseudoJet> inputparticles_cher;
+	std::vector<fastjet::PseudoJet> jet_scin;
+	std::vector<fastjet::PseudoJet> jet_cher;
+	std::vector<fastjet::PseudoJet> jet_cher_aligned;
+	std::vector<fastjet::PseudoJet> jet_dr;
 
-        for (const auto& crystalS_hit : crystals_Scounts) { TotalS_pe += crystalS_hit.getEnergy(); }
-        for (const auto& crystalC_hit : crystals_Ccounts) { TotalC_pe += crystalC_hit.getEnergy(); }
+	// Create input objects for fastjet
+        for (const auto& anhit : *STowerBarrelCollection) { // scintillating hadronic barrel
+	    double energy_calibrated = anhit.getEnergy() / Ks;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+            TLorentzVector tower;
+            tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	    inputparticles_scin.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	}
+        for (const auto& anhit : *STowerEndcapLCollection) { // scintillating hadronic endcap left
+	    double energy_calibrated = anhit.getEnergy() / Ks;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+            TLorentzVector tower;
+            tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	    inputparticles_scin.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	}
+        for (const auto& anhit : *STowerEndcapRCollection) { // scintillating hadronic endcap right
+	    double energy_calibrated = anhit.getEnergy() / Ks;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+            TLorentzVector tower;
+            tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	    inputparticles_scin.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	}
+        for (const auto& anhit : crystals_Scounts) { // scintillating crystals
+	    double energy_calibrated = anhit.getEnergy() / Ks_crystal;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+	    if(energy_calibrated > 0.0001) { // GeV
+              TLorentzVector tower;
+              tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	      inputparticles_scin.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	    }
+	}
+	fastjet::JetDefinition jet_defs(fastjet::ee_genkt_algorithm, 2.*M_PI, 1.);
+        fastjet::ClusterSequence clust_seq_scin(inputparticles_scin, jet_defs); 
+        jet_scin.push_back(clust_seq_scin.exclusive_jets(int(2))[0]);
+        jet_scin.push_back(clust_seq_scin.exclusive_jets(int(2))[1]);
+
+        for (const auto& anhit : *CTowerBarrelCollection) { // Cerenkov hadronic barrel
+	    double energy_calibrated = anhit.getEnergy() / Kc;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+            TLorentzVector tower;
+            tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	    inputparticles_cher.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	}
+        for (const auto& anhit : *CTowerEndcapLCollection) { // Cerenkov hadronic endcap left
+	    double energy_calibrated = anhit.getEnergy() / Kc;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+            TLorentzVector tower;
+            tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	    inputparticles_cher.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	}
+        for (const auto& anhit : *CTowerEndcapRCollection) { // Cerenkov hadronic endcap right
+	    double energy_calibrated = anhit.getEnergy() / Kc;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+            TLorentzVector tower;
+            tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	    inputparticles_cher.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	}
+        for (const auto& anhit : crystals_Ccounts) { // Cerenkov crystals
+	    double energy_calibrated = anhit.getEnergy() / Kc_crystal;
+	    auto angles = getThetaPhi(anhit);
+            double pt = energy_calibrated*sin(angles.theta);
+	    if(energy_calibrated > 0.0001) { // GeV
+              TLorentzVector tower;
+              tower.SetPtEtaPhiM(pt, convertThetaToEta(angles.theta), angles.phi, 0.);
+	      inputparticles_cher.push_back( fastjet::PseudoJet(tower.Px(), tower.Py(), tower.Pz(), tower.E()) );;
+	    }
+	}
+        fastjet::ClusterSequence clust_seq_cher(inputparticles_cher, jet_defs); 
+        jet_cher.push_back(clust_seq_cher.exclusive_jets(int(2))[0]);
+        jet_cher.push_back(clust_seq_cher.exclusive_jets(int(2))[1]);
+
+	/*for(auto SPseudoJet : jet_scin){
+	    std::cout<<"pseudojet scin eta "<<SPseudoJet.eta()<<" energy "<<SPseudoJet.E()<<std::endl;
+	};
+	for(auto CPseudoJet : jet_cher){
+	    std::cout<<"pseudojet cher eta "<<CPseudoJet.eta()<<" energy "<<CPseudoJet.E()<<std::endl;
+	};*/
         
-        // Calibrated signals per event (in GeV)
-        float eventCrystalTotalS_cal = TotalS_pe / Ks_crystal;
-        float eventCrystalTotalC_cal = TotalC_pe / Kc_crystal;
+	// Align cher jets to scin jets
+	for(uint jn=0; jn<jet_scin.size(); jn++) {
+            jet_cher_aligned.push_back(matchjet(jet_scin[jn], jet_cher)); 
+        }
 
-        // Dual-readout Combined Energy (in GeV)
-        float eventTotalE = ((eventTotalS_cal - Chi*eventTotalC_cal) / (1-Chi)) + ( (eventCrystalTotalS_cal - Chi_crystal*eventCrystalTotalC_cal) / (1-Chi_crystal) );
+	std::cout<<"After alignment"<<std::endl;
+	for(auto SPseudoJet : jet_scin){
+	    std::cout<<"pseudojet scin eta "<<SPseudoJet.eta()<<" energy "<<SPseudoJet.E()<<std::endl;
+	};
+	for(auto CPseudoJet : jet_cher_aligned){
+	    std::cout<<"pseudojet cher eta "<<CPseudoJet.eta()<<" energy "<<CPseudoJet.E()<<std::endl;
+	};
+       
+	// Apply dual-readout correction to jets
+        for(uint jn=0; jn<jet_scin.size(); jn++) {
+            jet_dr.push_back(mergejet(jet_scin[jn],jet_cher_aligned[jn], Chi));
+        }
 
-        // Fill histograms with calibrated GeV values
-        h_TotalS->Fill(eventTotalS_cal);
-        h_TotalC->Fill(eventTotalC_cal);
-        h_TotalE->Fill(eventTotalE);
-        h_TotalScrystal->Fill(eventCrystalTotalS_cal);
-        h_TotalCcrystal->Fill(eventCrystalTotalC_cal);
+	for(auto DRPseudoJet : jet_dr){
+	    std::cout<<"pseudojet dr eta "<<DRPseudoJet.eta()<<" energy "<<DRPseudoJet.E()<<std::endl;
+	};
+	
+	// Fill histograms with calibrated GeV values
+        h_TotalS->Fill(0.);
+        h_TotalC->Fill(0.);
+        h_TotalE->Fill(0.);
+        h_TotalScrystal->Fill(0.);
+        h_TotalCcrystal->Fill(0.);
 
     } // --- End Event Loop ---
     
@@ -440,7 +575,7 @@ TGraphErrors* createLinearityCanvas(const char* canvasName, const char* canvasTi
 /**
  * @brief Main function to run the analysis and produce linearity and resolution graphs.
  */
-int jetResolution() {
+int main() {
     
     // --- CALIBRATION CONSTANTS (p.e./GeV) ---
     const double CALIBRATION_CONSTANT_S = 206.284; // S p.e./GeV
@@ -454,8 +589,8 @@ int jetResolution() {
 
     // --- FILE MAP (Energy in GeV) ---
     std::map<double, std::string> filesToAnalyze;
-    //filesToAnalyze[10.0] = "pilinearity/IDEA_o2_v01_phi0p5_theta0p5_10gev.root";
-    filesToAnalyze[20.0] = "hadcalibration_newrad/IDEA_o2_v01_phi0p5_theta40p5_newrad.root";
+    filesToAnalyze[20.0] = "../IDEA_o2_v01_jet20gev_lowstat.root";
+    //filesToAnalyze[20.0] = "../../emlinearity/IDEA_o2_v01_phi0p5_theta0p5_60gev.root";
     // ... add more energies and files here
 
     std::vector<TH1F*> allHistograms;
@@ -587,10 +722,10 @@ int jetResolution() {
 
     // --- Create and save TGraphErrors, Fits, and Histograms ---
     if (pointIndex > 0) {
-        std::cout << "\nSaving Calibrated Graphs, Fits, and Histograms to 'piEnergyScanCalibratedResults.root'..." << std::endl;
+        std::cout << "\nSaving Calibrated Graphs, Fits, and Histograms to 'jetEnergyScanCalibratedResults.root'..." << std::endl;
         
         gStyle->SetOptFit(0); // Turn off global fit stats box
-        TFile *outFile = new TFile("piEnergyScanCalibratedResults.root", "RECREATE");
+        TFile *outFile = new TFile("jetEnergyScanCalibratedResults.root", "RECREATE");
 
         // Set fit range
         minEnergy = filesToAnalyze.begin()->first * 0.9;
@@ -761,7 +896,7 @@ int jetResolution() {
         for (auto h : allHistograms) { if (h) h->Write(); }
 
         outFile->Close();
-        std::cout << "Analysis results saved to 'piEnergyScanCalibratedResults.root'." << std::endl;
+        std::cout << "Analysis results saved to 'jetEnergyScanCalibratedResults.root'." << std::endl;
         
         // --- Clean up memory ---
         for (auto h : allHistograms) delete h;
