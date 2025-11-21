@@ -467,10 +467,12 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 	}
 
 	// Fill histograms with calibrated GeV values
-        h_TotalDR->Fill(jet_final[0].E());
-        h_TotalMCTruth->Fill(jet_mctruth_aligned[0].E());
-        h_TotalResidual->Fill((jet_final[0].E()-jet_mctruth_aligned[0].E())/jet_mctruth_aligned[0].E());
-        std::cout<<"end of event"<<std::endl;
+	if( jet_mctruth_aligned[0].eta()>-1.74 && jet_mctruth_aligned[0].eta()<1.74){
+            h_TotalDR->Fill(jet_final[0].E());
+            h_TotalMCTruth->Fill(jet_mctruth_aligned[0].E());
+            h_TotalResidual->Fill((jet_final[0].E()-jet_mctruth_aligned[0].E())/jet_mctruth_aligned[0].E());
+	}
+	std::cout<<"end of event"<<std::endl;
     } // --- End Event Loop ---
     
     // --- Calculate Statistics from Gaussian Fit ---
@@ -539,100 +541,6 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 
     return result;
 }
-
-/**
- * @brief Helper function to create a linearity canvas with a ratio plot.
- * @param canvasName Name for the TCanvas.
- * @param canvasTitle Title for the TCanvas.
- * @param graph The TGraphErrors with the linearity points.
- * @param fitFunc The TF1 (pol1) fit to the data.
- * @return A new TGraphErrors object containing the ratio points (caller must delete).
- */
-TGraphErrors* createLinearityCanvas(const char* canvasName, const char* canvasTitle, 
-                                    TGraphErrors* graph, TF1* fitFunc, double ratiomin, double ratiomax) 
-{
-    TCanvas *canvas = new TCanvas(canvasName, canvasTitle, 800, 700);
-    
-    // Create ratio graph
-    TGraphErrors* ratioGraph = new TGraphErrors(graph->GetN());
-    ratioGraph->SetName(Form("%s_ratio", graph->GetName()));
-    ratioGraph->SetTitle(""); // No title for ratio
-    ratioGraph->SetMarkerStyle(graph->GetMarkerStyle());
-    ratioGraph->SetMarkerColor(graph->GetMarkerColor());
-    ratioGraph->SetLineColor(graph->GetLineColor());
-
-    double x, y, y_fit, y_err, perc_dev, perc_err;
-    for (int i = 0; i < graph->GetN(); ++i) {
-        graph->GetPoint(i, x, y);
-        y_err = graph->GetErrorY(i);
-        y_fit = x;
-        std::cout<<" expected value y_fit " << y_fit << " value " << y << " percentual difference " << (y-y_fit)/y_fit * 100 << std::endl; 
-        if (y_fit != 0) {
-            perc_dev = (y - y_fit) / y_fit * 100.0;
-            perc_err = (y_err / y_fit) * 100.0; // Propagated error
-        } else {
-            perc_dev = 0;
-            perc_err = 0;
-        }
-        ratioGraph->SetPoint(i, x, perc_dev);
-        ratioGraph->SetPointError(i, 0, perc_err);
-    }
-
-    // --- Create Pads ---
-    TPad *pad1 = new TPad("pad1", "pad1", 0, 0.3, 1, 1.0);
-    pad1->SetBottomMargin(0.02); // No bottom margin
-    pad1->SetGrid();
-    pad1->Draw();
-    
-    TPad *pad2 = new TPad("pad2", "pad2", 0, 0.0, 1, 0.3);
-    pad2->SetTopMargin(0.02); // No top margin
-    pad2->SetBottomMargin(0.3); // Make space for X axis label
-    pad2->SetGrid();
-    pad2->Draw();
-
-    // --- Draw main plot ---
-    pad1->cd();
-    graph->Draw("AP"); // "AP" = Axes, Points (no line connecting points)
-    fitFunc->Draw("SAME");
-    graph->GetYaxis()->SetTitleSize(0.05);
-    graph->GetYaxis()->SetTitleOffset(0.9);
-    graph->GetYaxis()->SetLabelSize(0.04);
-    graph->GetXaxis()->SetLabelSize(0); // Hide X label on top plot
-
-    // --- Draw ratio plot ---
-    pad2->cd();
-    ratioGraph->Draw("AP");
-    
-    // Style ratio plot axes
-    ratioGraph->GetYaxis()->SetTitle("Deviation [%]");
-    ratioGraph->GetYaxis()->SetNdivisions(505); // 5 primary, 5 secondary
-    ratioGraph->GetYaxis()->SetTitleSize(0.12);
-    ratioGraph->GetYaxis()->SetTitleOffset(0.35);
-    ratioGraph->GetYaxis()->SetLabelSize(0.1);
-    ratioGraph->GetYaxis()->CenterTitle();
-    
-    ratioGraph->GetXaxis()->SetTitle(graph->GetXaxis()->GetTitle()); // Get title from main graph
-    ratioGraph->GetXaxis()->SetTitleSize(0.12);
-    ratioGraph->GetXaxis()->SetTitleOffset(1.0);
-    ratioGraph->GetXaxis()->SetLabelSize(0.1);
-
-    // Set Y range for ratio, e.g., +/- 5%
-    ratioGraph->SetMinimum(ratiomin);
-    ratioGraph->SetMaximum(ratiomax);
-
-    // Draw line at 0
-    // TLine *line = new TLine(pad2->GetUxmin(), 0, pad2->GetUxmax(), 0);
-    // line->SetLineColor(kRed);
-    // line->SetLineStyle(2); // Dashed
-    // line->Draw();
-    
-    canvas->Write();
-    ratioGraph->Write();
-    
-    // Return ratio graph so it can be deleted later
-    return ratioGraph;
-}
-
 
 /**
  * @brief Main function to run the analysis and produce linearity and resolution graphs.
