@@ -488,8 +488,8 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         // Initial parameter estimates from histogram
         double initialMean = h->GetMean();
         double initialSigma = h->GetRMS();
-        double fitMin = initialMean - 2.0 * initialSigma;
-        double fitMax = initialMean + 2.0 * initialSigma;
+        double fitMin = initialMean - 1.0 * initialSigma;
+        double fitMax = initialMean + 1.0 * initialSigma;
 
         TF1* gausFit = new TF1("gausFit", "gaus", fitMin, fitMax);
         gausFit->SetParameters(h->GetMaximum(), initialMean, initialSigma);
