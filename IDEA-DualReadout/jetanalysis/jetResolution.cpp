@@ -120,19 +120,16 @@ edm4hep::CalorimeterHitCollection* aggregateToTowers(
 // --- RESULTS STRUCTURE ---
 // This struct holds the statistics extracted from the Gaussian fit of each histogram.
 struct AnalysisResults {
-    // Statistics for Calibrated Scintillation Signal (in GeV)
-    double meanScint;     // Mean (from gaus fit)
-    double sigmaScint;    // Sigma (from gaus fit)
-    double semScint;      // Error on Mean (from gaus fit)
-    double sigmaScintErr; // Error on Sigma (from gaus fit)
+    double meanMCTruth;
+    double sigmaMCTruth;
+    double semMCTruth;
+    double sigmaMCTruthErr;
     
-    // Statistics for Calibrated Cerenkov Signal (in GeV)
-    double meanCerenkov;
-    double sigmaCerenkov;
-    double semCerenkov; 
-    double sigmaCerenkovErr;
+    double meanResidual;
+    double sigmaResidual;
+    double semResidual; 
+    double sigmaResidualErr;
     
-    // Statistics for Combined Signal (in GeV)
     double meanCombined;
     double sigmaCombined;
     double semCombined;
@@ -140,7 +137,7 @@ struct AnalysisResults {
     
     // Pointers to the histograms
     TH1F* h_TotalDR; 
-    TH1F* h_TotalTruth;
+    TH1F* h_TotalMCTruth;
     TH1F* h_TotalResidual;
 };
 
@@ -221,37 +218,26 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
 
     // --- Create unique names and titles for histograms (all in GeV) ---
     std::stringstream ss_s_name, ss_c_name, ss_e_name, ss_s_title, ss_c_title, ss_e_title;
-    ss_s_name << "h_TotalS_E_" << energy;
-    ss_c_name << "h_TotalC_E_" << energy;
-    ss_e_name << "h_TotalE_E_" << energy;
+    ss_s_name << "h_TotalDR_E_" << energy;
+    ss_c_name << "h_TotalMCTruth_E_" << energy;
+    ss_e_name << "h_Residual_E_" << energy;
     
     // Update titles to reflect GeV units
-    ss_s_title << "Total S (E=" << energy << " GeV);Total Calibrated S [GeV]; Events";
-    ss_c_title << "Total C (E=" << energy << " GeV);Total Calibrated C [GeV]; Events";
-    ss_e_title << "Total E Combined (E=" << energy << " GeV);Dual-readout energy [GeV]; Events";
-
-    std::stringstream ss_s_name_crystal, ss_c_name_crystal, ss_s_title_crystal, ss_c_title_crystal;
-    ss_s_name_crystal << "h_TotalS_E_crystal" << energy;
-    ss_c_name_crystal << "h_TotalC_E_crystal" << energy;
-    ss_s_title_crystal << "Total S crystal (E=" << energy << " GeV);Total Calibrated S [GeV]; Events";
-    ss_c_title_crystal << "Total C crystal (E=" << energy << " GeV);Total Calibrated C [GeV]; Events";
+    ss_s_title << "Energy DR (E=" << energy << " GeV);DR jet energy [GeV]; Events";
+    ss_c_title << "Energy MC truth (E=" << energy << " GeV);MCTruth jet energy [GeV]; Events";
+    ss_e_title << "Residual Energy (E=" << energy << " GeV);(Ej-Emc)/Emc; Events";
 
     // Create histograms with 'new' and SetDirectory(nullptr) to make them persist.
     // Update ranges to be appropriate for GeV.
     double range_min = 0.0;
     double range_max = energy * 1.5;
-    TH1F* h_TotalS = new TH1F(ss_s_name.str().c_str(), ss_s_title.str().c_str(), 200, range_min, range_max); 
-    TH1F* h_TotalC = new TH1F(ss_c_name.str().c_str(), ss_c_title.str().c_str(), 200, range_min, range_max);
-    TH1F* h_TotalE = new TH1F(ss_e_name.str().c_str(), ss_e_title.str().c_str(), 200, range_min, range_max);
+    TH1F* h_TotalDR = new TH1F(ss_s_name.str().c_str(), ss_s_title.str().c_str(), 200, range_min, range_max); 
+    TH1F* h_TotalMCTruth = new TH1F(ss_c_name.str().c_str(), ss_c_title.str().c_str(), 200, range_min, range_max);
+    TH1F* h_TotalResidual = new TH1F(ss_e_name.str().c_str(), ss_e_title.str().c_str(), 200, -energy/5, energy/5);
 
-    TH1F* h_TotalScrystal = new TH1F(ss_s_name_crystal.str().c_str(), ss_s_title_crystal.str().c_str(), 200, range_min, range_max); 
-    TH1F* h_TotalCcrystal = new TH1F(ss_c_name_crystal.str().c_str(), ss_c_title_crystal.str().c_str(), 200, range_min, range_max);
-
-    h_TotalS->SetDirectory(nullptr);
-    h_TotalC->SetDirectory(nullptr);
-    h_TotalE->SetDirectory(nullptr);
-    h_TotalScrystal->SetDirectory(nullptr);
-    h_TotalCcrystal->SetDirectory(nullptr);
+    h_TotalDR->SetDirectory(nullptr);
+    h_TotalMCTruth->SetDirectory(nullptr);
+    h_TotalResidual->SetDirectory(nullptr);
 
     unsigned int nEvents = reader.getEvents();
     std::cout << "  Number of events in file: " << nEvents << std::endl;
@@ -451,7 +437,7 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         for (const auto& p : mcParticles) { // MC truth particles
 	    if(p.getGeneratorStatus() != 1) continue;
 	    auto pdgid = p.getPDG();
-	    if(pdgid == 13 || pdgid == 12 || pdgid == 14 || pdgid == 16) continue;
+	    if(std::abs(pdgid) == 13 || std::abs(pdgid) == 12 || std::abs(pdgid) == 14 || std::abs(pdgid)== 16) continue;
 	    //auto daughters = p.getDaughters();
 	    //if(daughters.size() > 0) continue;
 	    //std::cout<<" pdg "<<p.getPDG()<<" daughters "<<daughters.size()<<" status "<<p.getGeneratorStatus()<<std::endl;
@@ -528,33 +514,28 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         return {mean, sigma, meanErr, sigmaErr};
     };
 
-    // Fit S histogram
-    auto [meanS, sigmaS, semS, sigmaSErr] = fitHistogram(h_TotalS);
-    result.meanScint = meanS;
-    result.sigmaScint = sigmaS;
-    result.semScint = semS;
-    result.sigmaScintErr = sigmaSErr;
+    auto [meanMCTruth, sigmaMCTruth, semMCTruth, sigmaMCTruthErr] = fitHistogram(h_TotalMCTruth);
+    result.meanMCTruth = meanMCTruth;
+    result.sigmaMCTruth = sigmaMCTruth;
+    result.semMCTruth = semMCTruth;
+    result.sigmaMCTruthErr = sigmaMCTruthErr;
 
-    // Fit C histogram
-    auto [meanC, sigmaC, semC, sigmaCErr] = fitHistogram(h_TotalC);
-    result.meanCerenkov = meanC;
-    result.sigmaCerenkov = sigmaC;
-    result.semCerenkov = semC;
-    result.sigmaCerenkovErr = sigmaCErr;
+    auto [meanC, sigmaC, semC, sigmaCErr] = fitHistogram(h_TotalDR);
+    result.meanCombined = meanC;
+    result.sigmaCombined = sigmaC;
+    result.semCombined = semC;
+    result.sigmaCombinedErr = sigmaCErr;
 
-    // Fit E (Combined) histogram
-    auto [meanE, sigmaE, semE, sigmaEErr] = fitHistogram(h_TotalE);
-    result.meanCombined = meanE;
-    result.sigmaCombined = sigmaE;
-    result.semCombined = semE;
-    result.sigmaCombinedErr = sigmaEErr;
+    auto [meanE, sigmaE, semE, sigmaEErr] = fitHistogram(h_TotalResidual);
+    result.meanResidual = meanE;
+    result.sigmaResidual = sigmaE;
+    result.semResidual = semE;
+    result.sigmaResidualErr = sigmaEErr;
 
     // Store histogram pointers
-    result.h_TotalS = h_TotalS;
-    result.h_TotalC = h_TotalC;
-    result.h_TotalE = h_TotalE;
-    result.h_TotalScrystal = h_TotalScrystal;
-    result.h_TotalCcrystal = h_TotalCcrystal;
+    result.h_TotalMCTruth = h_TotalMCTruth;
+    result.h_TotalDR = h_TotalDR;
+    result.h_TotalResidual = h_TotalResidual;
 
     return result;
 }
@@ -670,8 +651,7 @@ int main() {
 
     // --- FILE MAP (Energy in GeV) ---
     std::map<double, std::string> filesToAnalyze;
-    filesToAnalyze[20.0] = "../IDEA_o2_v01_jet20gev_lowstat.root";
-    //filesToAnalyze[20.0] = "../../emlinearity/IDEA_o2_v01_phi0p5_theta0p5_60gev.root";
+    filesToAnalyze[20.0] = "../IDEA_o2_v01_jet20gev.root";
     // ... add more energies and files here
 
     std::vector<TH1F*> allHistograms;
@@ -742,9 +722,9 @@ int main() {
         
         AnalysisResults results = analyzeFile(filename, energy, CALIBRATION_CONSTANT_S, CALIBRATION_CONSTANT_C, CALIBRATION_CONSTANT_Chi, CALIBRATION_CRYSTAL_S, CALIBRATION_CRYSTAL_C, CALIBRATION_CRYSTAL_Chi);
 
-        if (results.meanScint > 0 && results.meanCerenkov > 0) {
+        if (results.meanMCTruth > 0) {
             
-            double resS = results.sigmaScint / results.meanScint;
+           /* double resS = results.sigmaScint / results.meanScint;
             double resC = results.sigmaCerenkov / results.meanCerenkov;
             double resE = results.sigmaCombined / results.meanCombined;
 
@@ -781,23 +761,19 @@ int main() {
             
             grE_Resolution->SetPoint(pointIndex, energy, resE);
             grE_Resolution->SetPointError(pointIndex, 0.0, err_resE);
-            
+            */
             pointIndex++; 
 
             // Store histogram pointers for saving
-            if (results.h_TotalS) allHistograms.push_back(results.h_TotalS);
-            if (results.h_TotalC) allHistograms.push_back(results.h_TotalC);
-            if (results.h_TotalE) allHistograms.push_back(results.h_TotalE);
-            if (results.h_TotalScrystal) allHistograms.push_back(results.h_TotalScrystal);
-            if (results.h_TotalCcrystal) allHistograms.push_back(results.h_TotalCcrystal);
+            if (results.h_TotalMCTruth) allHistograms.push_back(results.h_TotalMCTruth);
+            if (results.h_TotalDR) allHistograms.push_back(results.h_TotalDR);
+            if (results.h_TotalResidual) allHistograms.push_back(results.h_TotalResidual);
 
         } else {
             std::cerr << "  No valid results from analysis for energy = " << energy << " GeV." << std::endl;
-            delete results.h_TotalS;
-            delete results.h_TotalC;
-            delete results.h_TotalE;
-            delete results.h_TotalScrystal;
-            delete results.h_TotalCcrystal;
+            delete results.h_TotalMCTruth;
+            delete results.h_TotalDR;
+            delete results.h_TotalResidual;
         }
     }
 
@@ -807,7 +783,7 @@ int main() {
         
         gStyle->SetOptFit(0); // Turn off global fit stats box
         TFile *outFile = new TFile("jetEnergyScanCalibratedResults.root", "RECREATE");
-
+/*
         // Set fit range
         minEnergy = filesToAnalyze.begin()->first * 0.9;
         maxEnergy = filesToAnalyze.rbegin()->first * 1.1;
@@ -968,7 +944,7 @@ int main() {
 
         cSC_res->Write();
         objectsToClean.push_back(cSC_res);
-        
+        */ 
 
         // --- Write Histograms ---
         // All histograms are now in GeV
