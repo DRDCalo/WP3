@@ -172,7 +172,7 @@ int runHadCalibrationAnalysis() {
   std::cout << "Starting calibration analysis..." << std::endl;
 
   for (const auto& pair : filesToAnalyze) {
-    double theta = pair.first;
+    double theta = pair.first + 90.0;
     std::string filename = pair.second;
 
     // Check if file exists before trying
