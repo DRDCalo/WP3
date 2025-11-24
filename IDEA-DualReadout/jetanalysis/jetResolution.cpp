@@ -233,7 +233,7 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
     double range_max = energy * 1.5;
     TH1F* h_TotalDR = new TH1F(ss_s_name.str().c_str(), ss_s_title.str().c_str(), 200, range_min, range_max); 
     TH1F* h_TotalMCTruth = new TH1F(ss_c_name.str().c_str(), ss_c_title.str().c_str(), 200, range_min, range_max);
-    TH1F* h_TotalResidual = new TH1F(ss_e_name.str().c_str(), ss_e_title.str().c_str(), 200, -energy/5, energy/5);
+    TH1F* h_TotalResidual = new TH1F(ss_e_name.str().c_str(), ss_e_title.str().c_str(), 200, -2, 2);
 
     h_TotalDR->SetDirectory(nullptr);
     h_TotalMCTruth->SetDirectory(nullptr);
@@ -560,46 +560,23 @@ int main() {
     // --- FILE MAP (Energy in GeV) ---
     std::map<double, std::string> filesToAnalyze;
     filesToAnalyze[20.0] = "../IDEA_o2_v01_jet20gev.root";
+    filesToAnalyze[40.0] = "../IDEA_o2_v01_jet40gev.root";
+    filesToAnalyze[60.0] = "../IDEA_o2_v01_jet60gev.root";
     // ... add more energies and files here
 
     std::vector<TH1F*> allHistograms;
     std::vector<TObject*> objectsToClean; // Store all created ROOT objects
 
-    // --- 1. Linearity Graphs (Mean Signal [GeV] vs. True Energy [GeV]) ---
-    TGraphErrors* grS_Linearity = new TGraphErrors();
-    grS_Linearity->SetName("g_Linearity_S");
-    grS_Linearity->SetTitle("Scintillation Signal Linearity;True Energy [GeV];Mean S [GeV]");
-    grS_Linearity->SetMarkerStyle(20); grS_Linearity->SetMarkerColor(kBlue); grS_Linearity->SetLineColor(kBlue);
-    objectsToClean.push_back(grS_Linearity);
-
-    TGraphErrors* grC_Linearity = new TGraphErrors();
-    grC_Linearity->SetName("g_Linearity_C");
-    grC_Linearity->SetTitle("Cerenkov Signal Linearity;True Energy [GeV];Mean C [GeV]");
-    grC_Linearity->SetMarkerStyle(20); grC_Linearity->SetMarkerColor(kRed); grC_Linearity->SetLineColor(kRed);
-    objectsToClean.push_back(grC_Linearity);
-
-    TGraphErrors* grE_Linearity = new TGraphErrors();
+    /*TGraphErrors* grE_Linearity = new TGraphErrors();
     grE_Linearity->SetName("g_Linearity_Combined");
     grE_Linearity->SetTitle("Combined Signal Linearity;True Energy [GeV];Dual-readout energy [GeV]");
     grE_Linearity->SetMarkerStyle(20); grE_Linearity->SetMarkerColor(kGreen+2); grE_Linearity->SetLineColor(kGreen+2);
-    objectsToClean.push_back(grE_Linearity);
+    objectsToClean.push_back(grE_Linearity);*/
 
     // --- 2. Resolution Graphs (Sigma/Mean vs. Energy) ---
-    TGraphErrors* grS_Resolution = new TGraphErrors();
-    grS_Resolution->SetName("g_Resolution_S");
-    grS_Resolution->SetTitle("Scintillation Energy Resolution;Energy [GeV];Resolution (#sigma/#mu)");
-    grS_Resolution->SetMarkerStyle(20); grS_Resolution->SetMarkerColor(kBlue); grS_Resolution->SetLineColor(kBlue);
-    objectsToClean.push_back(grS_Resolution);
-
-    TGraphErrors* grC_Resolution = new TGraphErrors();
-    grC_Resolution->SetName("g_Resolution_C");
-    grC_Resolution->SetTitle("Cerenkov Energy Resolution;Energy [GeV];Resolution (#sigma/#mu)");
-    grC_Resolution->SetMarkerStyle(20); grC_Resolution->SetMarkerColor(kRed); grC_Resolution->SetLineColor(kRed);
-    objectsToClean.push_back(grC_Resolution);
-
     TGraphErrors* grE_Resolution = new TGraphErrors();
     grE_Resolution->SetName("g_Resolution_Combined");
-    grE_Resolution->SetTitle("Dual-readout Energy Resolution;Dual-readout Energy [GeV];Resolution (#sigma/#mu)");
+    grE_Resolution->SetTitle("Dual-readout Jet Energy Resolution (crystal+fibers);E_{CM}/2;Resolution #sigma((E_{j}-E_{mc})/E_{mc})");
     grE_Resolution->SetMarkerStyle(20); grE_Resolution->SetMarkerColor(kGreen+2); grE_Resolution->SetLineColor(kGreen+2);
     objectsToClean.push_back(grE_Resolution);
 
@@ -618,8 +595,8 @@ int main() {
         double energy = pair.first;
         std::string filename = pair.second;
 
-        if (energy < minEnergy) minEnergy = energy;
-        if (energy > maxEnergy) maxEnergy = energy;
+        if (energy/2. < minEnergy) minEnergy = energy;
+        if (energy/2. > maxEnergy) maxEnergy = energy;
 
         if (gSystem->AccessPathName(filename.c_str())) {
             std::cerr << "ERROR: Cannot find file: " << filename << std::endl;
@@ -632,44 +609,12 @@ int main() {
 
         if (results.meanMCTruth > 0) {
             
-           /* double resS = results.sigmaScint / results.meanScint;
-            double resC = results.sigmaCerenkov / results.meanCerenkov;
-            double resE = results.sigmaCombined / results.meanCombined;
+            double resE = results.sigmaResidual;
+	    double err_resE = results.sigmaResidualErr;
 
-            // --- Calculate resolution error ---
-            // R = sigma / mu
-            // (delta_R/R)^2 = (delta_sigma/sigma)^2 + (delta_mu/mu)^2
-            auto calc_res_err = [](double res, double sigma, double sigma_err, double mu, double mu_err) {
-                if (mu == 0.0 || sigma == 0.0) return 0.0;
-                double rel_err_sigma_sq = std::pow(sigma_err / sigma, 2);
-                double rel_err_mu_sq = std::pow(mu_err / mu, 2);
-                return res * std::sqrt(rel_err_sigma_sq + rel_err_mu_sq);
-            };
-            
-            double err_resS = calc_res_err(resS, results.sigmaScint, results.sigmaScintErr, results.meanScint, results.semScint);
-            double err_resC = calc_res_err(resC, results.sigmaCerenkov, results.sigmaCerenkovErr, results.meanCerenkov, results.semCerenkov);
-            double err_resE = calc_res_err(resE, results.sigmaCombined, results.sigmaCombinedErr, results.meanCombined, results.semCombined);
-            
-            // --- 1. Linearity Points ---
-            grS_Linearity->SetPoint(pointIndex, energy, results.meanScint);
-            grS_Linearity->SetPointError(pointIndex, 0.0, results.semScint);
-
-            grC_Linearity->SetPoint(pointIndex, energy, results.meanCerenkov);
-            grC_Linearity->SetPointError(pointIndex, 0.0, results.semCerenkov);
-            
-            grE_Linearity->SetPoint(pointIndex, energy, results.meanCombined);
-            grE_Linearity->SetPointError(pointIndex, 0.0, results.semCombined);
-
-            // --- 2. Resolution Points ---
-            grS_Resolution->SetPoint(pointIndex, energy, resS);
-            grS_Resolution->SetPointError(pointIndex, 0.0, err_resS);
-
-            grC_Resolution->SetPoint(pointIndex, energy, resC);
-            grC_Resolution->SetPointError(pointIndex, 0.0, err_resC);
-            
-            grE_Resolution->SetPoint(pointIndex, energy, resE);
+            grE_Resolution->SetPoint(pointIndex, energy/2., resE);
             grE_Resolution->SetPointError(pointIndex, 0.0, err_resE);
-            */
+
             pointIndex++; 
 
             // Store histogram pointers for saving
@@ -691,62 +636,15 @@ int main() {
         
         gStyle->SetOptFit(0); // Turn off global fit stats box
         TFile *outFile = new TFile("jetEnergyScanCalibratedResults.root", "RECREATE");
-/*
+
         // Set fit range
         minEnergy = filesToAnalyze.begin()->first * 0.9;
         maxEnergy = filesToAnalyze.rbegin()->first * 1.1;
-
-        // --- Linearity ---
-        outFile->mkdir("Linearity");
-        outFile->cd("Linearity");
-
-        // FIT (pol1: p0 + p1*x)
-        TF1* fit_lin_S = new TF1("fit_lin_S", "pol1", minEnergy, maxEnergy);
-        fit_lin_S->SetLineColor(kBlue);
-        grS_Linearity->Fit(fit_lin_S, "RQ"); // Fit quietly
-        objectsToClean.push_back(fit_lin_S);
-        
-        TF1* fit_lin_C = new TF1("fit_lin_C", "pol1", minEnergy, maxEnergy);
-        fit_lin_C->SetLineColor(kRed);
-        grC_Linearity->Fit(fit_lin_C, "RQ"); // Fit quietly
-        objectsToClean.push_back(fit_lin_C);
-        
-        TF1* fit_lin_E = new TF1("fit_lin_E", "pol1", minEnergy, maxEnergy);
-        fit_lin_E->SetLineColor(kGreen+2);
-        grE_Linearity->Fit(fit_lin_E, "RQ"); // Fit quietly
-        objectsToClean.push_back(fit_lin_E);
-        
-        // Create ratio plots
-        TGraphErrors* grS_Ratio = createLinearityCanvas("c_Linearity_S", "Scintillation Linearity", grS_Linearity, fit_lin_S, -20.0, 0.0);
-        TGraphErrors* grC_Ratio = createLinearityCanvas("c_Linearity_C", "Cerenkov Linearity", grC_Linearity, fit_lin_C, -50.0, 0.0);
-        TGraphErrors* grE_Ratio = createLinearityCanvas("c_Linearity_Combined", "Combined Energy Linearity", grE_Linearity, fit_lin_E, -5.0, 5.0);
-        objectsToClean.push_back(grS_Ratio);
-        objectsToClean.push_back(grC_Ratio);
-        objectsToClean.push_back(grE_Ratio);
-        
-        grS_Linearity->Write();
-        grC_Linearity->Write();
-        grE_Linearity->Write();
 
         // --- Resolution ---
         outFile->mkdir("Resolution");
         outFile->cd("Resolution");
         
-        // FIT (Resolution: [0]/sqrt(E) + [1])
-        TF1* fit_res_S = new TF1("fit_res_S",  "sqrt( ([0]/sqrt(x))^2 + [1]^2 )", minEnergy, maxEnergy);
-        fit_res_S->SetParNames("Stochastic", "Constant");
-        fit_res_S->SetParameters(0.1, 0.01); 
-        fit_res_S->SetLineColor(kBlue);
-        grS_Resolution->Fit(fit_res_S, "RQ");
-        objectsToClean.push_back(fit_res_S);
-
-        TF1* fit_res_C = new TF1("fit_res_C", "sqrt( ([0]/sqrt(x))^2 + [1]^2 )", minEnergy, maxEnergy);
-        fit_res_C->SetParNames("Stochastic", "Constant");
-        fit_res_C->SetParameters(0.1, 0.01); 
-        fit_res_C->SetLineColor(kRed);
-        grC_Resolution->Fit(fit_res_C, "RQ");
-        objectsToClean.push_back(fit_res_C);
-
         TF1* fit_res_E = new TF1("fit_res_E", "sqrt( ([0]/sqrt(x))^2 + [1]^2 )", minEnergy, maxEnergy);
         fit_res_E->SetParNames("Stochastic", "Constant");
         fit_res_E->SetParameters(0.1, 0.01); 
@@ -754,28 +652,8 @@ int main() {
         grE_Resolution->Fit(fit_res_E, "RQ");
         objectsToClean.push_back(fit_res_E);
 
-        // S Resolution Canvas
-        TCanvas *cS_res = new TCanvas("c_Resolution_S", "Scintillation Resolution", 800, 600);
-        cS_res->SetLeftMargin(0.15); // Fix Y label cutoff
-        cS_res->SetGrid();
-        grS_Resolution->Draw("AP"); // "AP" = Axes, Points
-        fit_res_S->Draw("SAME");
-        cS_res->Write();
-        grS_Resolution->Write();
-        objectsToClean.push_back(cS_res);
-
-        // C Resolution Canvas
-        TCanvas *cC_res = new TCanvas("c_Resolution_C", "Cerenkov Resolution", 800, 600);
-        cC_res->SetLeftMargin(0.15); // Fix Y label cutoff
-        cC_res->SetGrid();
-        grC_Resolution->Draw("AP");
-        fit_res_C->Draw("SAME");
-        cC_res->Write();
-        grC_Resolution->Write();
-        objectsToClean.push_back(cC_res);
-        
         // E Combined Resolution Canvas
-        TCanvas *cE_res = new TCanvas("c_Resolution_Combined", "Combined Energy Resolution", 800, 600);
+        TCanvas *cE_res = new TCanvas("c_Resolution_Combined", "Energy Resolution", 800, 600);
         cE_res->SetLeftMargin(0.15); // Fix Y label cutoff
         cE_res->SetGrid();
         grE_Resolution->Draw("AP");
@@ -793,66 +671,6 @@ int main() {
         grE_Resolution->Write();
         objectsToClean.push_back(ptDRE);
         objectsToClean.push_back(cE_res);
-
-	// --- NEW: S and C Combined Resolution Plot ---
-        TCanvas *cSC_res = new TCanvas("c_Resolution_SC_Combined", "S and C Resolution", 800, 600);
-        cSC_res->SetLeftMargin(0.15); // Fix Y label cutoff
-        cSC_res->SetGrid();
-        
-        // Use a TMultiGraph to auto-fit the Y-axis range for both graphs
-        TMultiGraph *mg_res = new TMultiGraph();
-        mg_res->Add(grS_Resolution, "P"); // "P" = draw points
-        mg_res->Add(grC_Resolution, "P");
-        objectsToClean.push_back(mg_res); // Add to cleanup list
-
-        // Draw the multigraph first. "A" draws axes.
-        mg_res->Draw("A"); 
-        
-        // Set titles on the TMultiGraph's axes
-        mg_res->SetTitle("S and C Energy Resolution;Energy [GeV];Resolution (#sigma/#mu)");
-        mg_res->GetYaxis()->SetTitleOffset(1.25); // Adjust offset after margin change
-
-        // Now draw the fits on top
-        fit_res_S->Draw("SAME");
-        fit_res_C->Draw("SAME");
-
-        // Redraw points on top of grid/fits (optional but looks better)
-        grS_Resolution->Draw("P SAME");
-        grC_Resolution->Draw("P SAME");
-
-        // Legend
-        TLegend *leg = new TLegend(0.55, 0.75, 0.88, 0.88);
-        leg->AddEntry(grS_Resolution, "Scintillation (S)", "p");
-        leg->AddEntry(grC_Resolution, "Cerenkov (C)", "p");
-        leg->SetBorderSize(1);
-        leg->Draw();
-        objectsToClean.push_back(leg);
-
-        // PaveText for S Fit Results
-        TPaveText *ptS = new TPaveText(0.18, 0.75, 0.53, 0.88, "NDC");
-        ptS->SetBorderSize(1);
-        ptS->SetFillColor(0);
-        ptS->SetTextColor(kBlue);
-        ptS->SetTextAlign(12); // Left-aligned
-        ptS->AddText(Form("S Fit: a = %.3f #pm %.4f", fit_res_S->GetParameter(0), fit_res_S->GetParError(0)));
-        ptS->AddText(Form("S Fit: c = %.3f #pm %.4f", fit_res_S->GetParameter(1), fit_res_S->GetParError(1)));
-        ptS->Draw();
-        objectsToClean.push_back(ptS);
-
-        // PaveText for C Fit Results
-        TPaveText *ptC = new TPaveText(0.18, 0.60, 0.53, 0.73, "NDC");
-        ptC->SetBorderSize(1);
-        ptC->SetFillColor(0);
-        ptC->SetTextColor(kRed);
-        ptC->SetTextAlign(12); // Left-aligned
-        ptC->AddText(Form("C Fit: a = %.3f #pm %.4f", fit_res_C->GetParameter(0), fit_res_C->GetParError(0)));
-        ptC->AddText(Form("C Fit: c = %.3f #pm %.4f", fit_res_C->GetParameter(1), fit_res_C->GetParError(1)));
-        ptC->Draw();
-        objectsToClean.push_back(ptC);
-
-        cSC_res->Write();
-        objectsToClean.push_back(cSC_res);
-        */ 
 
         // --- Write Histograms ---
         // All histograms are now in GeV
