@@ -214,7 +214,7 @@ TGraphErrors* createLinearityCanvas(const char* canvasName, const char* canvasTi
     for (int i = 0; i < graph->GetN(); ++i) {
         graph->GetPoint(i, x, y);
         y_err = graph->GetErrorY(i);
-        y_fit = fitFunc->Eval(x);
+        y_fit = x;
         
         if (y_fit != 0) {
             perc_dev = (y - y_fit) / y_fit * 100.0;
