@@ -59,58 +59,81 @@ int GetTowerNumber(long long int cellID, bool isBarrel){
     return towerid;
 }
 
-// Function to clusterize fiber hits into towers hits
+// Function to clusterize fiber hits into tower hits
 edm4hep::CalorimeterHitCollection* aggregateToTowers(
     const edm4hep::SimCalorimeterHitCollection* inputHits,
     bool isBarrel
 ) {
-    // La mappa usa l'ID aggregato della torre come chiave e memorizza la hit aggregata.
-    // Usiamo std::unordered_map per una ricerca O(1) in media, che è più veloce di std::map.
+    // The map uses the aggregated tower ID as key and stores the aggregated hit.
+    // We use std::unordered_map for O(1) average lookup time.
     std::unordered_map<uint64_t, edm4hep::MutableCalorimeterHit> towerHitsMap;
 
     if (!inputHits) {
-        std::cerr << "ERRORE: Puntatore inputHits nullo." << std::endl;
+        std::cerr << "ERROR: Null inputHits pointer." << std::endl;
         return new edm4hep::CalorimeterHitCollection();
     }
 
-    // 1. Itera su ogni SimCaloHit (fibra) nella collezione di input
+    // 1. Iterate over every SimCaloHit (fiber) in the input collection
     for (const auto& simHit : *inputHits) {
         
         uint64_t fibreID = simHit.getCellID();
         
-        // a) Ottieni il CellID aggregato della Torre
+        // a) Get the aggregated Tower CellID
         uint64_t towerID = GetTowerNumber(fibreID, isBarrel);
         
-        // b) Estrai l'energia (e potresti aggiungere il tempo, il peso, ecc.)
-        double energy = simHit.getEnergy();
+        // b) Extract energy and position of the current fiber hit
+        double hitEnergy = simHit.getEnergy();
+        const auto& hitPos = simHit.getPosition();
         
-        // c) Aggregazione: usa .find() o .try_emplace() per l'accesso e l'inserimento
+        // c) Aggregation: check if the tower already exists in the map
         auto it = towerHitsMap.find(towerID);
 
         if (it == towerHitsMap.end()) {
-            // PRIMA HIT della Torre: crea un nuovo CalorimeterHit e inseriscilo
+            // FIRST HIT of the Tower: create a new CalorimeterHit and insert it
             edm4hep::MutableCalorimeterHit newHit;
             newHit.setCellID(towerID);
-            newHit.setEnergy(energy);
-            // Copia la posizione (idealmente si calcolerebbe il baricentro, ma qui usiamo la posizione della prima fibra)
-            newHit.setPosition(simHit.getPosition()); 
+            newHit.setEnergy(hitEnergy);
             
-            // Inserisci l'hit nella mappa
+            // Initial position is just the position of the first fiber
+            newHit.setPosition(hitPos); 
+            
+            // Insert the hit into the map
             towerHitsMap.emplace(towerID, newHit);
         } else {
-            // HIT SUCCESSIVA: aggiunge l'energia all'hit esistente
-            it->second.setEnergy(it->second.getEnergy() + energy);
-            // Nota: qui potresti aggiornare la posizione con la media pesata!
-        }
-    } // Fine loop sulle fibre
+            // SUBSEQUENT HIT: accumulate energy and update position (weighted average)
+            auto& towerHit = it->second;
 
-    // 2. Crea la nuova collezione di output
-    // NOTA: Il chiamante è responsabile della deallocazione di questo puntatore!
+            // Get current accumulated values of the tower
+            double currentTowerEnergy = towerHit.getEnergy();
+            const auto& currentTowerPos = towerHit.getPosition();
+
+            // Calculate new total energy
+            double newTotalEnergy = currentTowerEnergy + hitEnergy;
+
+            // Calculate the new weighted position (Barycenter)
+            // Formula: (P_old * E_old + P_new * E_new) / E_total
+            if (newTotalEnergy > 0) {
+                float weightedX = (currentTowerPos.x * currentTowerEnergy + hitPos.x * hitEnergy) / newTotalEnergy;
+                float weightedY = (currentTowerPos.y * currentTowerEnergy + hitPos.y * hitEnergy) / newTotalEnergy;
+                float weightedZ = (currentTowerPos.z * currentTowerEnergy + hitPos.z * hitEnergy) / newTotalEnergy;
+
+                // Update the tower hit with the new position and energy
+                towerHit.setPosition({weightedX, weightedY, weightedZ});
+                towerHit.setEnergy(newTotalEnergy);
+            } else {
+                // Edge case: if energy is zero or negative (unlikely in sim), just add energy
+                 towerHit.setEnergy(newTotalEnergy);
+            }
+        }
+    } // End loop over fibers
+
+    // 2. Create the output collection
+    // NOTE: The caller is responsible for deallocating this pointer!
     edm4hep::CalorimeterHitCollection* outputCollection = new edm4hep::CalorimeterHitCollection();
     
-    // 3. Riempie la collezione con i valori aggregati dalla mappa
+    // 3. Fill the collection with the aggregated values from the map
     for (auto& pair : towerHitsMap) {
-        // Usa std::move per ottimizzare il trasferimento dalla mappa al vettore
+        // Use std::move to optimize transfer from map to vector
         outputCollection->push_back(std::move(pair.second));
     }
     
@@ -479,7 +502,7 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
     AnalysisResults result;
 
     // Helper function to fit a histogram and extract parameters
-    auto fitHistogram = [&](TH1F* h) -> std::tuple<double, double, double, double> {
+    auto fitHistogram = [&](TH1F* h, double energyfit) -> std::tuple<double, double, double, double> {
         if (h->GetEntries() == 0) {
             std::cerr << "  WARNING: Histogram " << h->GetName() << " is empty. Skipping fit." << std::endl;
             return {0, 0, 0, 0};
@@ -490,6 +513,11 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         double initialSigma = h->GetRMS();
         double fitMin = initialMean - 1.0 * initialSigma;
         double fitMax = initialMean + 1.0 * initialSigma;
+
+	if(energyfit==20){
+            fitMin = -0.22;
+            fitMax = 0.04;
+	}
 
         TF1* gausFit = new TF1("gausFit", "gaus", fitMin, fitMax);
         gausFit->SetParameters(h->GetMaximum(), initialMean, initialSigma);
@@ -516,19 +544,19 @@ AnalysisResults analyzeFile(const std::string& input_file, double energy, double
         return {mean, sigma, meanErr, sigmaErr};
     };
 
-    auto [meanMCTruth, sigmaMCTruth, semMCTruth, sigmaMCTruthErr] = fitHistogram(h_TotalMCTruth);
+    auto [meanMCTruth, sigmaMCTruth, semMCTruth, sigmaMCTruthErr] = fitHistogram(h_TotalMCTruth, energy);
     result.meanMCTruth = meanMCTruth;
     result.sigmaMCTruth = sigmaMCTruth;
     result.semMCTruth = semMCTruth;
     result.sigmaMCTruthErr = sigmaMCTruthErr;
 
-    auto [meanC, sigmaC, semC, sigmaCErr] = fitHistogram(h_TotalDR);
+    auto [meanC, sigmaC, semC, sigmaCErr] = fitHistogram(h_TotalDR, energy);
     result.meanCombined = meanC;
     result.sigmaCombined = sigmaC;
     result.semCombined = semC;
     result.sigmaCombinedErr = sigmaCErr;
 
-    auto [meanE, sigmaE, semE, sigmaEErr] = fitHistogram(h_TotalResidual);
+    auto [meanE, sigmaE, semE, sigmaEErr] = fitHistogram(h_TotalResidual, energy);
     result.meanResidual = meanE;
     result.sigmaResidual = sigmaE;
     result.semResidual = semE;
@@ -595,8 +623,8 @@ int main() {
         double energy = pair.first;
         std::string filename = pair.second;
 
-        if (energy/2. < minEnergy) minEnergy = energy;
-        if (energy/2. > maxEnergy) maxEnergy = energy;
+        if (energy/2. < minEnergy) minEnergy = energy/2.-1.;
+        if (energy/2. > maxEnergy) maxEnergy = energy/2.+1.;
 
         if (gSystem->AccessPathName(filename.c_str())) {
             std::cerr << "ERROR: Cannot find file: " << filename << std::endl;
@@ -636,10 +664,6 @@ int main() {
         
         gStyle->SetOptFit(0); // Turn off global fit stats box
         TFile *outFile = new TFile("jetEnergyScanCalibratedResults.root", "RECREATE");
-
-        // Set fit range
-        minEnergy = filesToAnalyze.begin()->first * 0.9;
-        maxEnergy = filesToAnalyze.rbegin()->first * 1.1;
 
         // --- Resolution ---
         outFile->mkdir("Resolution");
